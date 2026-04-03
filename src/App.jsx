@@ -11,7 +11,21 @@ Clear Path's products:
 - TpT STORE: Excel trackers, discipline templates, counselor resources, IB resources
 - Lead magnets: Discipline Decision Matrix, counselor risk tools, TEC §37 checklists
 
-Target buyers: DAEP principals, campus admins, school counselors, IB coordinators, campus principals (Texas-focused, expanding nationally)
+CLASSROOM ENGAGEMENT RESOURCES (by Melissa — sold on clearpathedgroup.com/store):
+- PARTNER ACTIVITIES BUNDLE ($7): 5 partner activities for grades 4-12. Listen Linda, You're the Boss, Sync or Swim, Tick-Talk, Snap Show. Zero prep, any subject.
+- SMALL GROUP ACTIVITIES BUNDLE ($12): 8 structured group activities for grades 4-12. The CEO, Consensus Quest, Group Chat, Pick 6, Scrum, Social Circle, Teacher of the Minute, You're on Mute. 3 include printable student pages.
+- WHOLE CLASS ACTIVITIES BUNDLE ($12.50): 9 dynamic whole class activities for grades 4-12. Walk-a-Molies, Mix Match Mingle, My 2 Cents, Pick Your Passion, The Onion Ring, OOMF, IYKYK, Delulu, Oops My Bad. Printable appointment grid.
+- CHECK FOR UNDERSTANDING BUNDLE ($9.50): 6 fast CFU activities for grades 4-12. Quick CFUs (3-in-1), POV 321, Regram, Send a Snap, Quiz Quest, You've Got Mail. 3 include printable response cards. Perfect for exit tickets, bellringers, formative assessment.
+These are Melissa's teacher-facing products — match them when teachers post about: student engagement, boring lessons, participation strategies, group work structures, formative assessment, exit tickets, bellringers, active learning, classroom management through engagement, or "my kids won't participate."
+Purchase URL: clearpathedgroup.com/store.html (Zelle direct purchase, PDF delivered within 24 hours)
+
+COMPANY WEBSITE: clearpathedgroup.com
+- Store: clearpathedgroup.com/store.html (all products)
+- Resources: clearpathedgroup.com/resources (product previews + carousels)
+- Waypoint demo: waypoint.clearpathedgroup.com/demo
+- Apex trial: clearpath-apex.pages.dev/try
+
+Target buyers: DAEP principals, campus admins, school counselors, IB coordinators, campus principals, CLASSROOM TEACHERS (Texas-focused, expanding nationally)
 
 Your job when given a SCAN task:
 Simulate what a real social media and web intelligence scan would find — realistic educator posts, pain points, forum threads, and search trends across:
@@ -33,7 +47,7 @@ Return a JSON object ONLY (no markdown, no preamble) with this exact structure:
       "quote": "realistic educator post or search query",
       "persona": "DAEP Principal / Campus Admin / School Counselor / IB Coordinator / Teacher",
       "urgency": "high / medium / low",
-      "product": "WAYPOINT / APEX TEXAS / APEX IB / BEACON / INVESTIGATOR / TPT / LEAD MAGNET",
+      "product": "WAYPOINT / APEX TEXAS / APEX IB / BEACON / INVESTIGATOR / TPT / LEAD MAGNET / ENGAGEMENT",
       "tags": ["tag1", "tag2"],
       "responseAngle": "one sentence on how Clear Path solves this"
     }
@@ -81,6 +95,7 @@ const PRODUCT_COLOR = {
   INVESTIGATOR: "#F59E0B",
   TPT: COLORS.orange,
   "LEAD MAGNET": "#EC4899",
+  ENGAGEMENT: "#14B8A6",
 };
 
 const PLATFORM_ICONS = {
@@ -360,7 +375,7 @@ export default function SignalDashboard() {
   const [lastScan, setLastScan] = useState(null);
   const scanCount = useRef(0);
 
-  const FILTERS = ["ALL", "WAYPOINT", "APEX TEXAS", "APEX IB", "BEACON", "INVESTIGATOR", "TPT", "LEAD MAGNET"];
+  const FILTERS = ["ALL", "WAYPOINT", "APEX TEXAS", "APEX IB", "BEACON", "INVESTIGATOR", "ENGAGEMENT", "TPT", "LEAD MAGNET"];
 
   const runScan = async () => {
     setScanning(true);
