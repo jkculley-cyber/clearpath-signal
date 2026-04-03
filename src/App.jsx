@@ -426,48 +426,52 @@ export default function SignalDashboard() {
 
   const FILTERS = ["ALL", "WAYPOINT", "APEX TEXAS", "APEX IB", "BEACON", "INVESTIGATOR", "ENGAGEMENT"];
 
+  // Timeout wrapper — prevents hung promises from freezing the scan
+  const withTimeout = (promise, ms, fallback) =>
+    Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(fallback), ms))]);
+
   const runScan = async () => {
     setLoading(true);
     setError(null);
     batchCount.current += 1;
     const searches = SEARCH_SETS[(batchCount.current - 1) % SEARCH_SETS.length];
 
-    // Step 1: Search all platforms in parallel
-    setStatus("Searching Reddit + Twitter + Quora + TpT + Google Trends...");
-    const [redditResults, twitterResults, quoraResults, trendsData] = await Promise.all([
-      Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))),
-      searchTwitterViaClaude(batchCount.current),
-      searchQuoraAndTpT(batchCount.current),
-      searchGoogleTrends(batchCount.current),
-    ]);
-    if (trendsData) setTrends(trendsData.trends || []);
-    const allPosts = [...redditResults.flat(), ...twitterResults, ...quoraResults];
-
-    if (allPosts.length === 0) {
-      setError("No posts found. Try again.");
-      setLoading(false);
-      setStatus("");
-      return;
-    }
-
-    // Dedupe by URL
-    const seen = new Set();
-    const unique = allPosts.filter(p => {
-      if (seen.has(p.url)) return false;
-      seen.add(p.url);
-      return true;
-    });
-
-    // Step 2: Send to Claude for analysis
-    setStatus(`Found ${unique.length} posts. Analyzing with Claude...`);
     try {
-      const result = await analyzeWithClaude(unique);
+      // Step 1: Search all platforms in parallel with timeouts
+      setStatus("Searching Reddit + Twitter + Quora + TpT + Google Trends...");
+      const [redditResults, twitterResults, quoraResults, trendsData] = await Promise.all([
+        withTimeout(Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))), 15000, []),
+        withTimeout(searchTwitterViaClaude(batchCount.current), 30000, []),
+        withTimeout(searchQuoraAndTpT(batchCount.current), 30000, []),
+        withTimeout(searchGoogleTrends(batchCount.current), 30000, null),
+      ]);
+      if (trendsData) setTrends(trendsData.trends || []);
+      const allPosts = [...(redditResults || []).flat(), ...(twitterResults || []), ...(quoraResults || [])];
+
+      if (allPosts.length === 0) {
+        setError("No posts found. Try again.");
+        setLoading(false);
+        setStatus("");
+        return;
+      }
+
+      // Dedupe by URL
+      const seen = new Set();
+      const unique = allPosts.filter(p => {
+        if (!p.url || seen.has(p.url)) return false;
+        seen.add(p.url);
+        return true;
+      });
+
+      // Step 2: Send to Claude for analysis
+      setStatus(`Found ${unique.length} posts. Analyzing with Claude...`);
+      const result = await withTimeout(analyzeWithClaude(unique), 45000, { signals: [], summary: "Analysis timed out. Reddit posts were found — try again.", topAction: "" });
       const incoming = result.signals || [];
       setSignals(prev => [...incoming, ...prev].slice(0, 50));
       setSummary(result.summary || "");
       setTopAction(result.topAction || "");
     } catch (e) {
-      setError(e.message || "Analysis failed.");
+      setError(e.message || "Scan failed. Try again.");
       console.error(e);
     }
 
