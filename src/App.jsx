@@ -144,6 +144,66 @@ async function searchTwitterViaClaude(batchNum) {
   }
 }
 
+const QUORA_TPT_SEARCHES = [
+  'site:quora.com "school counselor" caseload tracking overwhelmed',
+  'site:quora.com "discipline referral" school tracking system',
+  'site:quora.com "student engagement" activities classroom participation',
+  'site:quora.com "T-TESS" OR "teacher evaluation" observation tracking',
+  'site:quora.com "IB coordinator" OR "IB programme" evaluation preparation',
+  'site:quora.com "DAEP" OR "alternative education" discipline placement',
+  'site:teacherspayteachers.com/Forum discipline tracking recommendation',
+  'site:teacherspayteachers.com/Forum counselor caseload tracker',
+  'site:teacherspayteachers.com/Forum student engagement activities group',
+  'site:teacherspayteachers.com/Forum classroom management behavior',
+];
+
+async function searchQuoraAndTpT(batchNum) {
+  const q1 = QUORA_TPT_SEARCHES[(batchNum * 2 - 2) % QUORA_TPT_SEARCHES.length];
+  const q2 = QUORA_TPT_SEARCHES[(batchNum * 2 - 1) % QUORA_TPT_SEARCHES.length];
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2048,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+      messages: [{
+        role: "user",
+        content: `Search for real questions and discussions from educators on Quora and TpT forums:\n1. ${q1}\n2. ${q2}\n\nFind posts where REAL PEOPLE are asking questions, seeking recommendations, or expressing frustration. I need the actual URL, the person's name or username, and what they asked.\n\nSKIP any result that is a product listing, blog post, or company page. I ONLY want questions and discussion threads from individuals.\n\nReturn JSON ONLY:\n{"posts": [{"url": "https://...", "author": "name or username", "title": "the question or topic", "text": "what they said (first 200 chars)", "platform": "Quora" or "TpT Forum"}]}\n\nIf you cannot find real questions with real URLs, return {"posts": []}. Do NOT fabricate.`
+      }],
+    }),
+  });
+
+  const data = await res.json();
+  if (data.error) return [];
+  const textBlocks = (data.content || []).filter(b => b.type === "text");
+  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
+  try {
+    const clean = lastText.replace(/```json|```/g, "").trim();
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return [];
+    const result = JSON.parse(jsonMatch[0]);
+    return (result.posts || []).map(p => ({
+      title: p.title || p.text?.slice(0, 100) || "",
+      author: p.author || "unknown",
+      url: p.url || "",
+      subreddit: p.platform || "Quora",
+      score: 0,
+      comments: 0,
+      text: p.text || "",
+      created: "recent",
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function analyzeWithClaude(posts) {
   const postSummaries = posts.map((p, i) =>
     `POST ${i + 1}:\nTitle: ${p.title}\nAuthor: ${p.subreddit === "Twitter/X" ? "" : "u/"}${p.author}\nPlatform: ${p.subreddit}\nScore: ${p.score} | ${p.comments} comments\nDate: ${p.created}\nURL: ${p.url}\nText: ${p.text}\n`
@@ -173,10 +233,10 @@ Products:
 - INVESTIGATOR TOOLKIT: Campus investigation workflow $5/mo
 - ENGAGEMENT BUNDLES by Melissa ($7-12.50): Partner Activities, Small Group, Whole Class, CFU bundles for grades 4-12
 
-You are analyzing REAL posts from Reddit and Twitter/X from real educators. Your job:
+You are analyzing REAL posts from Reddit, Twitter/X, Quora, and TpT Forums from real educators. Your job:
 1. Identify which posts represent someone who has a problem Clear Path can solve
 2. Score urgency — can Kim/Melissa respond directly to this person right now?
-3. Write a ready-to-paste reply (Reddit comment or Twitter reply) in Kim's or Melissa's authentic educator voice
+3. Write a ready-to-paste reply (Reddit comment, Twitter reply, Quora answer, or TpT forum response) in Kim's or Melissa's authentic educator voice
 4. Be ruthlessly honest — if a post is not relevant, skip it. Quality over quantity.
 
 Return JSON ONLY:
@@ -325,13 +385,14 @@ export default function SignalDashboard() {
     batchCount.current += 1;
     const searches = SEARCH_SETS[(batchCount.current - 1) % SEARCH_SETS.length];
 
-    // Step 1: Search Reddit + Twitter in parallel
-    setStatus("Searching Reddit + Twitter...");
-    const [redditResults, twitterResults] = await Promise.all([
+    // Step 1: Search Reddit + Twitter + Quora/TpT in parallel
+    setStatus("Searching Reddit + Twitter + Quora + TpT...");
+    const [redditResults, twitterResults, quoraResults] = await Promise.all([
       Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))),
       searchTwitterViaClaude(batchCount.current),
+      searchQuoraAndTpT(batchCount.current),
     ]);
-    const allPosts = [...redditResults.flat(), ...twitterResults];
+    const allPosts = [...redditResults.flat(), ...twitterResults, ...quoraResults];
 
     if (allPosts.length === 0) {
       setError("No posts found. Try again.");
@@ -480,9 +541,9 @@ export default function SignalDashboard() {
               Ready to scan
             </div>
             <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 20, lineHeight: 1.6 }}>
-              SIGNAL searches Reddit + Twitter/X in real-time — 7 subreddits<br />
-              and educator hashtags — finds real people with real problems.<br />
-              Every result is a clickable thread. Every response is ready to paste.
+              SIGNAL searches Reddit, Twitter/X, Quora, and TpT Forums in real-time.<br />
+              7 subreddits + educator hashtags + Q&A sites.<br />
+              Real people. Real problems. Ready-to-paste responses.
             </div>
             <button onClick={runScan} style={{
               background: COLORS.orange, color: "#fff", border: "none",
