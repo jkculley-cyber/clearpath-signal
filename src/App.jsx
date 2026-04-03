@@ -385,16 +385,18 @@ export default function SignalDashboard() {
     scanCount.current += 1;
     const scanNum = scanCount.current;
 
-    const focusAreas = scanNum % 3 === 0
-      ? "Focus heavily on IB coordinator and international school pain points this scan."
-      : scanNum % 2 === 0
-      ? "Focus on counselor and mental health/crisis workflow pain points this scan."
-      : "Focus on DAEP, discipline compliance, and T-TESS observation pain points this scan.";
+    const focusRotation = [
+      "Focus on DAEP, discipline compliance, and T-TESS observation pain points this scan. Include 2-3 signals matching WAYPOINT or APEX TEXAS.",
+      "Focus on teacher engagement, boring lessons, student participation, group work, exit tickets, and formative assessment. Include 3-4 signals matching Melissa's ENGAGEMENT bundles (Partner Activities, Small Group, Whole Class, CFU). Tag these as product: ENGAGEMENT.",
+      "Focus on counselor and mental health/crisis workflow pain points this scan. Include 2-3 signals matching BEACON.",
+      "Focus heavily on IB coordinator and international school pain points this scan. Include 2-3 signals matching APEX IB.",
+    ];
+    const focusAreas = focusRotation[(scanNum - 1) % focusRotation.length];
 
     try {
       const result = await callClaude([{
         role: "user",
-        content: `SCAN task. Simulate a real-time social media and web intelligence scan for Clear Path Education Group. ${focusAreas} Today's scan #${scanNum}. Return 8-10 fresh signals, different from any previous scan. Make educator quotes feel urgent and real.`
+        content: `SCAN task. Simulate a real-time social media and web intelligence scan for Clear Path Education Group. ${focusAreas} ALSO always include at least 1-2 teacher engagement signals (product: ENGAGEMENT) about student participation, group work, exit tickets, or boring lessons — these match Melissa's classroom activity bundles. Today's scan #${scanNum}. Return 8-10 fresh signals, different from any previous scan. Make educator quotes feel urgent and real.`
       }]);
 
       const incoming = result.signals || [];
