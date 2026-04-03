@@ -204,6 +204,51 @@ async function searchQuoraAndTpT(batchNum) {
   }
 }
 
+const TRENDS_QUERIES = [
+  "DAEP discipline tracking, ISS tracking spreadsheet, school discipline software",
+  "school counselor caseload tracker, counselor group tracking, SB 179 compliance",
+  "T-TESS observation tool, teacher evaluation tracking, walkthrough documentation",
+  "student engagement activities, classroom participation strategies, group work ideas",
+  "IB coordinator tools, IB self study template, IB evaluation preparation",
+  "school discipline referral form, behavior tracking teacher, discipline documentation",
+];
+
+async function searchGoogleTrends(batchNum) {
+  const query = TRENDS_QUERIES[(batchNum - 1) % TRENDS_QUERIES.length];
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2048,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+      messages: [{
+        role: "user",
+        content: `Search Google Trends and Google search suggestions for these educator search terms: ${query}\n\nI need to know:\n1. Which of these terms are people actually searching for (search volume/interest)\n2. Related searches educators are making (Google's "People also ask" and "Related searches")\n3. Any rising or breakout search terms in education/school administration\n\nAlso search for these terms on Google and tell me what currently ranks #1-3 for each — I need to know who I'm competing against.\n\nReturn JSON ONLY:\n{"trends": [{"term": "search term", "interest": "high/medium/low", "trend": "rising/stable/declining", "topCompetitors": ["site1.com", "site2.com"], "relatedSearches": ["related term 1", "related term 2"], "seoOpportunity": "1 sentence — what page should clearpathedgroup.com build to rank for this"}]}\n\nBe specific about competitors. If TpT, Bright Futures, DMAC, or specific sites rank, name them.`
+      }],
+    }),
+  });
+
+  const data = await res.json();
+  if (data.error) return null;
+  const textBlocks = (data.content || []).filter(b => b.type === "text");
+  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
+  try {
+    const clean = lastText.replace(/```json|```/g, "").trim();
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return null;
+  }
+}
+
 async function analyzeWithClaude(posts) {
   const postSummaries = posts.map((p, i) =>
     `POST ${i + 1}:\nTitle: ${p.title}\nAuthor: ${p.subreddit === "Twitter/X" ? "" : "u/"}${p.author}\nPlatform: ${p.subreddit}\nScore: ${p.score} | ${p.comments} comments\nDate: ${p.created}\nURL: ${p.url}\nText: ${p.text}\n`
@@ -373,6 +418,8 @@ export default function SignalDashboard() {
   const [status, setStatus] = useState("");
   const [summary, setSummary] = useState("");
   const [topAction, setTopAction] = useState("");
+  const [trends, setTrends] = useState([]);
+  const [showTrends, setShowTrends] = useState(false);
   const [filter, setFilter] = useState("ALL");
   const [error, setError] = useState(null);
   const batchCount = useRef(0);
@@ -385,13 +432,15 @@ export default function SignalDashboard() {
     batchCount.current += 1;
     const searches = SEARCH_SETS[(batchCount.current - 1) % SEARCH_SETS.length];
 
-    // Step 1: Search Reddit + Twitter + Quora/TpT in parallel
-    setStatus("Searching Reddit + Twitter + Quora + TpT...");
-    const [redditResults, twitterResults, quoraResults] = await Promise.all([
+    // Step 1: Search all platforms in parallel
+    setStatus("Searching Reddit + Twitter + Quora + TpT + Google Trends...");
+    const [redditResults, twitterResults, quoraResults, trendsData] = await Promise.all([
       Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))),
       searchTwitterViaClaude(batchCount.current),
       searchQuoraAndTpT(batchCount.current),
+      searchGoogleTrends(batchCount.current),
     ]);
+    if (trendsData) setTrends(trendsData.trends || []);
     const allPosts = [...redditResults.flat(), ...twitterResults, ...quoraResults];
 
     if (allPosts.length === 0) {
@@ -515,6 +564,62 @@ export default function SignalDashboard() {
           }}>
             <div style={{ fontSize: 10, color: COLORS.purpleMid, fontWeight: 700, marginBottom: 4 }}>INTELLIGENCE SUMMARY</div>
             <div style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6 }}>{summary}</div>
+          </div>
+        )}
+
+        {/* Google Trends Panel */}
+        {trends.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <button onClick={() => setShowTrends(!showTrends)} style={{
+              background: COLORS.darkCard, border: `1px solid ${COLORS.darkBorder}`,
+              borderRadius: 8, padding: "12px 16px", width: "100%",
+              cursor: "pointer", textAlign: "left",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 10, color: COLORS.success, fontWeight: 700, letterSpacing: "0.1em" }}>GOOGLE TRENDS — SEO OPPORTUNITIES</div>
+                  <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>{trends.length} search terms analyzed — click to {showTrends ? "hide" : "expand"}</div>
+                </div>
+                <span style={{ color: COLORS.textMuted, fontSize: 14 }}>{showTrends ? "\u25B2" : "\u25BC"}</span>
+              </div>
+            </button>
+            {showTrends && (
+              <div style={{
+                background: COLORS.darkCard, border: `1px solid ${COLORS.darkBorder}`,
+                borderTop: "none", borderRadius: "0 0 8px 8px", padding: "0 16px 16px",
+              }}>
+                {trends.map((t, i) => {
+                  const interestColor = t.interest === "high" ? COLORS.success : t.interest === "medium" ? COLORS.warning : COLORS.textMuted;
+                  const trendColor = t.trend === "rising" ? COLORS.success : t.trend === "declining" ? COLORS.danger : COLORS.textMuted;
+                  return (
+                    <div key={i} style={{
+                      padding: "12px 0", borderBottom: i < trends.length - 1 ? `1px solid ${COLORS.darkBorder}` : "none",
+                    }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.text }}>{t.term}</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: interestColor + "22", color: interestColor, textTransform: "uppercase" }}>{t.interest} interest</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: trendColor + "22", color: trendColor, textTransform: "uppercase" }}>{t.trend}</span>
+                      </div>
+                      {t.topCompetitors?.length > 0 && (
+                        <div style={{ fontSize: 11, color: COLORS.danger, marginBottom: 4 }}>
+                          Ranking now: {t.topCompetitors.join(", ")}
+                        </div>
+                      )}
+                      {t.relatedSearches?.length > 0 && (
+                        <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 4 }}>
+                          Related: {t.relatedSearches.join(" | ")}
+                        </div>
+                      )}
+                      {t.seoOpportunity && (
+                        <div style={{ fontSize: 11, color: COLORS.success, fontStyle: "italic" }}>
+                          {t.seoOpportunity}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
