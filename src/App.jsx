@@ -2,53 +2,6 @@ import { useState, useRef } from "react";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
-const SYSTEM_PROMPT = `You are SIGNAL, a market intelligence agent for Clear Path Education Group. Your job is to find REAL conversations, posts, and content from REAL people on the internet — then tell Kim and Melissa exactly where to show up and what to say.
-
-Kim Culley: sitting DAEP Principal, former Head of School, IB Programme Coordinator.
-Melissa: IB Programme Coordinator, teacher engagement resource creator.
-
-Products:
-- WAYPOINT: DAEP + discipline management SaaS for Texas districts. Demo: waypoint.clearpathedgroup.com/demo
-- APEX TEXAS: AI instructional leadership (T-TESS, voice→coaching). Trial: clearpath-apex.pages.dev/try
-- APEX IB: IB coordinator platform (PSP 2020, self-study, observation)
-- BEACON: Counselor command center ($8/mo). SB 179 80/20 compliance, groups, referrals
-- INVESTIGATOR TOOLKIT: Campus investigation workflow ($5/mo)
-- ENGAGEMENT BUNDLES by Melissa ($7-$12.50): Partner Activities, Small Group, Whole Class, CFU bundles for grades 4-12
-- TpT Store + Lead magnets: compliance checklists, discipline trackers, counselor tools
-
-Website: clearpathedgroup.com | Store: clearpathedgroup.com/store.html
-
-CRITICAL RULES:
-1. You have web search. USE IT. Search for real posts, real threads, real people.
-2. Every signal you return MUST have a real URL that Kim can click and find the actual conversation.
-3. DO NOT make up quotes, people, or posts. Only report what you actually find via search.
-4. If a search returns nothing useful, say so — do not fabricate results.
-5. For each real finding, write a specific talking point Kim or Melissa can use to respond.
-6. ONLY return results from discussion threads, forum posts, social media posts, and Q&A threads where REAL PEOPLE are asking questions or expressing frustration.
-7. SKIP any result that is a product listing, store page, blog post selling something, or company marketing page. We want PEOPLE WITH PROBLEMS, not sellers with solutions.
-8. Prioritize: Reddit threads, Facebook Group posts, Twitter/X posts, LinkedIn personal posts, Quora questions, forum discussions.
-9. The best signals are posts where someone says "I need help with...", "does anyone have...", "I'm struggling with...", "looking for recommendations..."
-
-When you find real conversations, return JSON ONLY (no markdown):
-{
-  "signals": [
-    {
-      "id": "unique-id",
-      "url": "REAL URL to the actual post/thread/article",
-      "platform": "Reddit / Facebook / LinkedIn / TpT / Twitter / Blog / Forum",
-      "title": "actual title or first line of the post",
-      "author": "username or name if visible",
-      "painPoint": "what problem this person has",
-      "product": "WAYPOINT / APEX TEXAS / APEX IB / BEACON / INVESTIGATOR / ENGAGEMENT / BRAND",
-      "urgency": "respond today / this week / content idea",
-      "talkingPoint": "2-3 sentences Kim or Melissa should say in response — authentic educator voice, peer-to-peer, NOT salesy",
-      "whyThisMatters": "1 sentence on why this is a real opportunity"
-    }
-  ],
-  "summary": "2-3 sentence overview of what you found",
-  "topAction": "the single most important thing to do right now"
-}`;
-
 const COLORS = {
   purple: "#4B2D7F", purpleMid: "#6B4BA1", purpleLight: "#EDE7F6",
   orange: "#E8650A", dark: "#1A1025", darkCard: "#231535",
@@ -59,45 +12,64 @@ const COLORS = {
 const PRODUCT_COLOR = {
   WAYPOINT: "#3B82F6", "APEX TEXAS": "#8B5CF6", "APEX IB": "#06B6D4",
   BEACON: "#22C55E", INVESTIGATOR: "#F59E0B", ENGAGEMENT: "#14B8A6",
-  TPT: COLORS.orange, BRAND: "#EC4899",
+  BRAND: "#EC4899",
 };
 
 const URGENCY_STYLE = {
-  "respond today": { color: COLORS.danger, bg: COLORS.danger + "18" },
+  "respond now": { color: COLORS.danger, bg: COLORS.danger + "18" },
   "this week": { color: COLORS.warning, bg: COLORS.warning + "18" },
   "content idea": { color: COLORS.success, bg: COLORS.success + "18" },
 };
 
-const SCAN_QUERIES = [
+// Reddit searches — real subreddits, real keywords
+const SEARCH_SETS = [
   [
-    "reddit.com r/Teachers DAEP ISS discipline tracking frustrated",
-    "reddit.com r/SchoolCounseling caseload overwhelmed tracking groups",
-    "facebook.com groups Texas school administrators discipline help",
-    "twitter.com #txeducator DAEP OR discipline OR compliance",
+    { sub: "Teachers", q: "discipline referral tracking system", sort: "new" },
+    { sub: "Teachers", q: "student engagement boring lessons help", sort: "relevance" },
+    { sub: "schoolcounseling", q: "caseload overwhelmed tracking", sort: "new" },
+    { sub: "Teachers", q: "ISS OSS suspension alternative", sort: "relevance" },
   ],
   [
-    "reddit.com r/Teachers student engagement boring lessons ideas help",
-    "reddit.com r/IBO coordinator self study evaluation overwhelmed",
-    "facebook.com groups school counselors SB 179 OR 80/20 OR caseload",
-    "twitter.com #ttess observation walkthrough frustrating OR overwhelming",
+    { sub: "Teachers", q: "group activities participation strategies", sort: "new" },
+    { sub: "Teachers", q: "classroom management documentation admin", sort: "relevance" },
+    { sub: "schoolcounseling", q: "end of year transition students risk", sort: "new" },
+    { sub: "IBO", q: "coordinator evaluation self study", sort: "relevance" },
   ],
   [
-    "reddit.com r/Teachers ISS OSS referral tracking need help spreadsheet",
-    "reddit.com r/SchoolCounseling end of year transition handoff students",
-    "facebook.com groups elementary counselors group tracking activities",
-    "linkedin.com school principal discipline documentation compliance",
+    { sub: "Teachers", q: "SPED manifestation IEP discipline", sort: "relevance" },
+    { sub: "Teachers", q: "exit tickets formative assessment ideas", sort: "new" },
+    { sub: "schoolcounseling", q: "group counseling tracking data sessions", sort: "relevance" },
+    { sub: "Teachers", q: "observation walkthrough feedback T-TESS", sort: "new" },
   ],
   [
-    "reddit.com r/Teachers group activities participation struggling advice",
-    "reddit.com r/K12sysadmin discipline management software district",
-    "facebook.com groups IB coordinators evaluation visit preparation",
-    "twitter.com school counselor overwhelmed end of year caseload",
+    { sub: "Teachers", q: "students won't work refuse participate", sort: "new" },
+    { sub: "K12sysadmin", q: "discipline management software platform", sort: "relevance" },
+    { sub: "schoolcounseling", q: "SB 179 compliance time tracking counselor", sort: "new" },
+    { sub: "Teachers", q: "behavior tracking data collection frustrated", sort: "relevance" },
   ],
 ];
 
-async function runScanWithSearch(batchNum) {
-  const queries = SCAN_QUERIES[(batchNum - 1) % SCAN_QUERIES.length];
-  const searchPrompt = queries.map((q, i) => `Search ${i + 1}: "${q}"`).join("\n");
+async function searchReddit(sub, query, sort, limit = 5) {
+  const url = `https://www.reddit.com/r/${sub}/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}&restrict_sr=on&t=year`;
+  const res = await fetch(url, { headers: { "User-Agent": "SIGNAL/1.0 (clearpathedgroup.com)" } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.data?.children || []).map(p => ({
+    title: p.data.title,
+    author: p.data.author,
+    url: "https://reddit.com" + p.data.permalink,
+    subreddit: p.data.subreddit_name_prefixed,
+    score: p.data.score,
+    comments: p.data.num_comments,
+    text: (p.data.selftext || "").slice(0, 300),
+    created: new Date(p.data.created_utc * 1000).toLocaleDateString(),
+  }));
+}
+
+async function analyzeWithClaude(posts) {
+  const postSummaries = posts.map((p, i) =>
+    `POST ${i + 1}:\nTitle: ${p.title}\nAuthor: u/${p.author}\nSubreddit: ${p.subreddit}\nScore: ${p.score} | ${p.comments} comments\nDate: ${p.created}\nURL: ${p.url}\nText: ${p.text}\n`
+  ).join("\n---\n");
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -110,39 +82,63 @@ async function runScanWithSearch(batchNum) {
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
+      system: `You are SIGNAL, a market intelligence analyst for Clear Path Education Group.
+
+Kim Culley: sitting DAEP Principal, former Head of School, IB Programme Coordinator.
+Melissa: IB Programme Coordinator, creates classroom engagement resources.
+
+Products:
+- WAYPOINT: DAEP + discipline management SaaS for Texas districts
+- APEX TEXAS: AI instructional leadership (T-TESS, voice coaching) $10/mo
+- APEX IB: IB coordinator platform (self-study, observation, Learner Profile)
+- BEACON: Counselor command center $8/mo (SB 179 80/20, groups, referrals)
+- INVESTIGATOR TOOLKIT: Campus investigation workflow $5/mo
+- ENGAGEMENT BUNDLES by Melissa ($7-12.50): Partner Activities, Small Group, Whole Class, CFU bundles for grades 4-12
+
+You are analyzing REAL Reddit posts from real educators. Your job:
+1. Identify which posts represent someone who has a problem Clear Path can solve
+2. Score urgency — can Kim/Melissa respond directly to this person right now?
+3. Write a ready-to-paste Reddit comment in Kim's or Melissa's authentic educator voice
+4. Be ruthlessly honest — if a post is not relevant, skip it. Quality over quantity.
+
+Return JSON ONLY:
+{
+  "signals": [
+    {
+      "id": "post-number",
+      "title": "exact post title",
+      "author": "u/username",
+      "subreddit": "r/subreddit",
+      "url": "exact reddit URL",
+      "score": number,
+      "comments": number,
+      "date": "date string",
+      "painPoint": "1 sentence — what problem does this person have",
+      "product": "WAYPOINT / APEX TEXAS / APEX IB / BEACON / INVESTIGATOR / ENGAGEMENT / BRAND",
+      "urgency": "respond now / this week / content idea",
+      "readyToPost": "Full Reddit comment Kim or Melissa can paste as a reply. Authentic educator voice. Lead with empathy and experience. Mention Clear Path ONLY if it genuinely fits — many responses should be pure value with no pitch. 3-5 sentences max.",
+      "whyThisMatters": "1 sentence on why this is worth responding to"
+    }
+  ],
+  "summary": "2 sentence overview",
+  "topAction": "the #1 thing to do right now"
+}
+
+Skip posts that are not relevant. Only return posts where a real person has a real problem. Prefer posts with high engagement (upvotes + comments) — those have more eyeballs.`,
       messages: [{
         role: "user",
-        content: `Run these searches and find REAL discussion threads, forum posts, and social media posts from REAL educators asking for help, venting frustrations, or seeking recommendations.\n\n${searchPrompt}\n\nIMPORTANT: SKIP all product pages, store listings, blog posts selling things, and company marketing. I ONLY want posts from real people in discussion threads — Reddit, Facebook Groups, Twitter, LinkedIn personal posts, Quora, teacher forums.\n\nThe best results are people saying "I need...", "does anyone know...", "I'm struggling with...", "any recommendations for..."\n\nFor each real result, match it to a Clear Path product and write a talking point. Return 6-10 real signals with real URLs. If you can't find discussion posts for a search, skip it — do NOT fabricate or substitute a product page.`
+        content: `Analyze these real Reddit posts and identify which ones are opportunities for Clear Path Education Group. Only include posts where someone has a genuine pain point we can address.\n\n${postSummaries}`
       }],
     }),
   });
 
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
-
-  // Extract the final text block (after all tool uses)
-  const textBlocks = (data.content || []).filter(b => b.type === "text");
-  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
-  const clean = lastText.replace(/```json|```/g, "").trim();
-
-  // Find JSON in the response
+  const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  const clean = text.replace(/```json|```/g, "").trim();
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No structured response returned");
+  if (!jsonMatch) throw new Error("No analysis returned");
   return JSON.parse(jsonMatch[0]);
-}
-
-function Badge({ label, color, small }) {
-  return (
-    <span style={{
-      background: color + "22", color,
-      border: `1px solid ${color}44`, borderRadius: 4,
-      padding: small ? "1px 6px" : "2px 8px",
-      fontSize: small ? 10 : 11, fontWeight: 700,
-      letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap",
-    }}>{label}</span>
-  );
 }
 
 function SignalCard({ signal }) {
@@ -150,8 +146,8 @@ function SignalCard({ signal }) {
   const [copied, setCopied] = useState(false);
   const urg = URGENCY_STYLE[signal.urgency] || URGENCY_STYLE["content idea"];
 
-  const copyTalkingPoint = () => {
-    navigator.clipboard.writeText(signal.talkingPoint || "");
+  const copyResponse = () => {
+    navigator.clipboard.writeText(signal.readyToPost || "");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -163,75 +159,70 @@ function SignalCard({ signal }) {
       borderLeft: `3px solid ${PRODUCT_COLOR[signal.product] || COLORS.orange}`,
       borderRadius: 8, padding: "14px 16px", marginBottom: 10,
     }}>
-      {/* Header badges */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-        <Badge label={signal.platform} color={COLORS.purpleMid} small />
-        <Badge label={signal.product} color={PRODUCT_COLOR[signal.product] || COLORS.orange} small />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
         <span style={{
-          fontSize: 10, fontWeight: 700, padding: "1px 6px",
-          borderRadius: 4, background: urg.bg, color: urg.color,
-          textTransform: "uppercase",
+          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+          background: COLORS.purpleMid + "22", color: COLORS.purpleMid,
+          border: `1px solid ${COLORS.purpleMid}44`,
+        }}>{signal.subreddit}</span>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+          background: (PRODUCT_COLOR[signal.product] || COLORS.orange) + "22",
+          color: PRODUCT_COLOR[signal.product] || COLORS.orange,
+          border: `1px solid ${(PRODUCT_COLOR[signal.product] || COLORS.orange)}44`,
+        }}>{signal.product}</span>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+          background: urg.bg, color: urg.color,
         }}>{signal.urgency}</span>
+        <span style={{ fontSize: 10, color: COLORS.textMuted }}>
+          {signal.score} pts | {signal.comments} comments | {signal.date}
+        </span>
       </div>
 
-      {/* Title + author */}
       <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text, marginBottom: 4, lineHeight: 1.4 }}>
         {signal.title}
       </div>
-      {signal.author && (
-        <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 6 }}>
-          by {signal.author}
-        </div>
-      )}
-
-      {/* Pain point */}
+      <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 4 }}>
+        {signal.author}
+      </div>
       <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>
         {signal.painPoint}
       </div>
-
-      {/* Why this matters */}
       {signal.whyThisMatters && (
         <div style={{
-          fontSize: 11, color: COLORS.purpleLight, fontStyle: "italic",
-          marginBottom: 8, paddingLeft: 10,
-          borderLeft: `2px solid ${COLORS.darkBorder}`,
-        }}>
-          {signal.whyThisMatters}
-        </div>
+          fontSize: 11, color: COLORS.purpleLight, fontStyle: "italic", marginBottom: 8,
+          paddingLeft: 10, borderLeft: `2px solid ${COLORS.darkBorder}`,
+        }}>{signal.whyThisMatters}</div>
       )}
 
-      {/* Expand for talking point */}
-      <button onClick={() => setExpanded(!expanded)} style={{
-        background: "none", border: `1px solid ${COLORS.darkBorder}`,
-        color: COLORS.textMuted, borderRadius: 4,
-        padding: "4px 10px", fontSize: 11, cursor: "pointer",
-      }}>
-        {expanded ? "Hide Talking Point" : "Show Talking Point"}
-      </button>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setExpanded(!expanded)} style={{
+          background: "none", border: `1px solid ${COLORS.darkBorder}`,
+          color: COLORS.textMuted, borderRadius: 4,
+          padding: "5px 12px", fontSize: 11, cursor: "pointer",
+        }}>{expanded ? "Hide Response" : "Show Ready-to-Post Response"}</button>
+        <a href={signal.url} target="_blank" rel="noopener noreferrer" style={{
+          background: COLORS.orange, color: "#fff", border: "none", borderRadius: 4,
+          padding: "5px 12px", fontSize: 11, fontWeight: 700,
+          textDecoration: "none", cursor: "pointer",
+        }}>Go to Thread</a>
+      </div>
 
       {expanded && (
         <div style={{ marginTop: 10, animation: "fadeIn 0.3s ease" }}>
           <div style={{
             background: COLORS.dark, borderRadius: 8, padding: 14,
             fontSize: 13, color: COLORS.text, lineHeight: 1.6,
-            border: `1px solid ${COLORS.darkBorder}`, marginBottom: 10,
+            border: `1px solid ${COLORS.darkBorder}`, marginBottom: 8,
             whiteSpace: "pre-wrap",
-          }}>
-            {signal.talkingPoint}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={copyTalkingPoint} style={{
-              background: copied ? COLORS.success : COLORS.purple,
-              color: "#fff", border: "none", borderRadius: 6,
-              padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", flex: 1,
-            }}>{copied ? "Copied!" : "Copy Talking Point"}</button>
-            <a href={signal.url} target="_blank" rel="noopener noreferrer" style={{
-              background: COLORS.orange, color: "#fff",
-              border: "none", borderRadius: 6,
-              padding: "7px 14px", fontSize: 12, fontWeight: 700,
-              cursor: "pointer", textDecoration: "none", textAlign: "center", flex: 1,
-            }}>Go to Post</a>
-          </div>
+          }}>{signal.readyToPost}</div>
+          <button onClick={copyResponse} style={{
+            background: copied ? COLORS.success : COLORS.purple,
+            color: "#fff", border: "none", borderRadius: 6,
+            padding: "8px 16px", fontSize: 12, fontWeight: 700,
+            cursor: "pointer", width: "100%",
+          }}>{copied ? "Copied! Go paste it." : "Copy Response"}</button>
         </div>
       )}
     </div>
@@ -241,6 +232,7 @@ function SignalCard({ signal }) {
 export default function SignalDashboard() {
   const [signals, setSignals] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
   const [summary, setSummary] = useState("");
   const [topAction, setTopAction] = useState("");
   const [filter, setFilter] = useState("ALL");
@@ -253,18 +245,46 @@ export default function SignalDashboard() {
     setLoading(true);
     setError(null);
     batchCount.current += 1;
+    const searches = SEARCH_SETS[(batchCount.current - 1) % SEARCH_SETS.length];
 
+    // Step 1: Search Reddit directly
+    setStatus("Searching Reddit...");
+    const allPosts = [];
+    for (const s of searches) {
+      const results = await searchReddit(s.sub, s.q, s.sort, 5);
+      allPosts.push(...results);
+    }
+
+    if (allPosts.length === 0) {
+      setError("No Reddit posts found. Try again.");
+      setLoading(false);
+      setStatus("");
+      return;
+    }
+
+    // Dedupe by URL
+    const seen = new Set();
+    const unique = allPosts.filter(p => {
+      if (seen.has(p.url)) return false;
+      seen.add(p.url);
+      return true;
+    });
+
+    // Step 2: Send to Claude for analysis
+    setStatus(`Found ${unique.length} posts. Analyzing with Claude...`);
     try {
-      const result = await runScanWithSearch(batchCount.current);
+      const result = await analyzeWithClaude(unique);
       const incoming = result.signals || [];
-      setSignals(prev => [...incoming, ...prev].slice(0, 40));
+      setSignals(prev => [...incoming, ...prev].slice(0, 50));
       setSummary(result.summary || "");
       setTopAction(result.topAction || "");
     } catch (e) {
-      setError(e.message || "Scan failed. Try again.");
+      setError(e.message || "Analysis failed.");
       console.error(e);
     }
+
     setLoading(false);
+    setStatus("");
   };
 
   const filtered = filter === "ALL" ? signals : signals.filter(s => s.product === filter);
@@ -282,12 +302,10 @@ export default function SignalDashboard() {
         *{margin:0;padding:0;box-sizing:border-box}
       `}</style>
 
-      {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${COLORS.dark} 0%, ${COLORS.darkCard} 100%)`,
         borderBottom: `1px solid ${COLORS.darkBorder}`,
-        padding: "20px 24px 16px",
-        position: "sticky", top: 0, zIndex: 50,
+        padding: "20px 24px 16px", position: "sticky", top: 0, zIndex: 50,
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div>
@@ -297,7 +315,9 @@ export default function SignalDashboard() {
             <div style={{ fontFamily: "'Syne', sans-serif", fontSize: 22, fontWeight: 800, color: COLORS.text }}>
               SIGNAL
             </div>
-            <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 1 }}>Real-Time Market Intelligence</div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 1 }}>
+              {status || "Real educators. Real problems. Real URLs."}
+            </div>
           </div>
           <button onClick={runScan} disabled={loading} style={{
             background: loading ? COLORS.darkBorder : COLORS.orange,
@@ -305,7 +325,7 @@ export default function SignalDashboard() {
             padding: "10px 22px", fontSize: 13, fontWeight: 700,
             cursor: loading ? "not-allowed" : "pointer",
           }}>
-            {loading ? "Scanning the web..." : "SCAN NOW"}
+            {loading ? "Scanning..." : "SCAN NOW"}
           </button>
         </div>
       </div>
@@ -319,50 +339,46 @@ export default function SignalDashboard() {
           }}>{error}</div>
         )}
 
-        {/* Stats */}
         {signals.length > 0 && (
           <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
             {[
-              { label: "Signals Found", value: signals.length, color: COLORS.purpleMid },
-              { label: "Respond Today", value: signals.filter(s => s.urgency === "respond today").length, color: COLORS.danger },
+              { label: "Signals", value: signals.length, color: COLORS.purpleMid },
+              { label: "Respond Now", value: signals.filter(s => s.urgency === "respond now").length, color: COLORS.danger },
               { label: "This Week", value: signals.filter(s => s.urgency === "this week").length, color: COLORS.warning },
               { label: "Scans", value: batchCount.current, color: COLORS.orange },
             ].map(s => (
               <div key={s.label} style={{
                 background: COLORS.darkCard, border: `1px solid ${COLORS.darkBorder}`,
-                borderRadius: 8, padding: "10px 16px", flex: 1, minWidth: 100,
+                borderRadius: 8, padding: "10px 16px", flex: 1, minWidth: 90,
               }}>
                 <div style={{ fontSize: 22, fontWeight: 800, color: s.color, fontFamily: "'Syne', sans-serif" }}>{s.value}</div>
-                <div style={{ fontSize: 10, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: "0.1em" }}>{s.label}</div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted, textTransform: "uppercase" }}>{s.label}</div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Top Action */}
         {topAction && (
           <div style={{
             background: `linear-gradient(135deg, ${COLORS.orange}18, ${COLORS.purple}18)`,
             border: `1px solid ${COLORS.orange}44`,
             borderRadius: 8, padding: "12px 16px", marginBottom: 16,
           }}>
-            <div style={{ fontSize: 10, color: COLORS.orange, fontWeight: 700, marginBottom: 4, letterSpacing: "0.15em" }}>DO THIS FIRST</div>
+            <div style={{ fontSize: 10, color: COLORS.orange, fontWeight: 700, marginBottom: 4 }}>DO THIS FIRST</div>
             <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.5 }}>{topAction}</div>
           </div>
         )}
 
-        {/* Summary */}
         {summary && (
           <div style={{
             background: COLORS.darkCard, border: `1px solid ${COLORS.darkBorder}`,
             borderRadius: 8, padding: "12px 16px", marginBottom: 16,
           }}>
-            <div style={{ fontSize: 10, color: COLORS.purpleMid, fontWeight: 700, marginBottom: 4, letterSpacing: "0.15em" }}>INTELLIGENCE SUMMARY</div>
+            <div style={{ fontSize: 10, color: COLORS.purpleMid, fontWeight: 700, marginBottom: 4 }}>INTELLIGENCE SUMMARY</div>
             <div style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6 }}>{summary}</div>
           </div>
         )}
 
-        {/* Filters */}
         {signals.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
             {FILTERS.map(f => (
@@ -377,7 +393,6 @@ export default function SignalDashboard() {
           </div>
         )}
 
-        {/* Empty state */}
         {signals.length === 0 && !loading && (
           <div style={{
             textAlign: "center", padding: "60px 20px",
@@ -387,9 +402,9 @@ export default function SignalDashboard() {
               Ready to scan
             </div>
             <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 20, lineHeight: 1.6 }}>
-              SIGNAL searches the real web — Reddit, Facebook, LinkedIn, TpT, blogs —<br />
-              and finds real educators talking about problems your products solve.<br />
-              Every result has a real URL. Every talking point is ready to use.
+              SIGNAL searches Reddit in real-time — r/Teachers, r/SchoolCounseling,<br />
+              r/IBO, r/K12sysadmin — and finds real people with real problems.<br />
+              Every result is a clickable thread. Every response is ready to paste.
             </div>
             <button onClick={runScan} style={{
               background: COLORS.orange, color: "#fff", border: "none",
@@ -399,9 +414,8 @@ export default function SignalDashboard() {
           </div>
         )}
 
-        {/* Signal cards */}
         {filtered.map(signal => (
-          <div key={signal.id} style={{ animation: "fadeIn 0.4s ease" }}>
+          <div key={signal.id + signal.url} style={{ animation: "fadeIn 0.4s ease" }}>
             <SignalCard signal={signal} />
           </div>
         ))}
