@@ -68,8 +68,8 @@ const SEARCH_SETS = [
 ];
 
 async function searchReddit(sub, query, sort, limit = 5) {
-  const url = `https://www.reddit.com/r/${sub}/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}&restrict_sr=on&t=year`;
-  const res = await fetch(url, { headers: { "User-Agent": "SIGNAL/1.0 (clearpathedgroup.com)" } });
+  const url = `/api/reddit?sub=${encodeURIComponent(sub)}&q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}`;
+  const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();
   return (data.data?.children || []).map(p => ({
