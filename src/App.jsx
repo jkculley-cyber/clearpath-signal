@@ -169,26 +169,28 @@ function PulseOrb({ active }) {
 }
 
 function buildSearchUrl(platform, channel, painPoint, tags) {
-  const keywords = encodeURIComponent(painPoint + " " + (tags || []).slice(0, 2).join(" "));
-  const channelEnc = encodeURIComponent(channel || "");
-  switch (platform) {
-    case "Facebook Group":
-      return `https://www.facebook.com/search/posts/?q=${keywords}`;
-    case "Twitter":
-      return `https://x.com/search?q=${keywords}&f=live`;
-    case "Reddit": {
-      const sub = (channel || "").match(/r\/(\w+)/)?.[1] || "Teachers";
-      return `https://www.reddit.com/r/${sub}/search/?q=${encodeURIComponent(painPoint)}&restrict_sr=1&sort=new`;
-    }
-    case "TpT":
-      return `https://www.teacherspayteachers.com/Browse/Search:${encodeURIComponent(painPoint)}`;
-    case "LinkedIn":
-      return `https://www.linkedin.com/search/results/content/?keywords=${keywords}`;
-    case "Google Trends":
-      return `https://trends.google.com/trends/explore?q=${encodeURIComponent(painPoint)}&geo=US`;
-    default:
-      return `https://www.google.com/search?q=${keywords}+site:${(platform || "").toLowerCase().replace(/\s/g, "")}`;
+  const keyTags = (tags || []).slice(0, 2).join(" ");
+  const q = (painPoint + " " + keyTags).trim();
+
+  const siteMap = {
+    "Facebook Group": "site:facebook.com/groups",
+    "Twitter": "site:x.com OR site:twitter.com",
+    "Reddit": (() => {
+      const sub = (channel || "").match(/r\/(\w+)/)?.[1];
+      return sub ? `site:reddit.com/r/${sub}` : "site:reddit.com";
+    })(),
+    "TpT": "site:teacherspayteachers.com",
+    "LinkedIn": "site:linkedin.com/posts OR site:linkedin.com/pulse",
+    "Google Trends": null,
+  };
+
+  if (platform === "Google Trends") {
+    return `https://trends.google.com/trends/explore?q=${encodeURIComponent(painPoint)}&geo=US`;
   }
+
+  const site = siteMap[platform] || "";
+  const googleQuery = `${site} "${painPoint}" ${keyTags}`.trim();
+  return `https://www.google.com/search?q=${encodeURIComponent(googleQuery)}`;
 }
 
 function SignalCard({ signal, onDraft, isNew }) {
@@ -249,7 +251,7 @@ function SignalCard({ signal, onDraft, isNew }) {
                     letterSpacing: "0.03em",
                     textDecoration: "none",
                     display: "inline-block",
-                  }}>Find Conversation</a>
+                  }}>Search Real Posts</a>
                 <button onClick={e => { e.stopPropagation(); onDraft(signal); }} style={{
                   background: COLORS.orange,
                   color: "#fff",
