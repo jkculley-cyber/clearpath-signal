@@ -153,6 +153,29 @@ function PulseOrb({ active }) {
   );
 }
 
+function buildSearchUrl(platform, channel, painPoint, tags) {
+  const keywords = encodeURIComponent(painPoint + " " + (tags || []).slice(0, 2).join(" "));
+  const channelEnc = encodeURIComponent(channel || "");
+  switch (platform) {
+    case "Facebook Group":
+      return `https://www.facebook.com/search/posts/?q=${keywords}`;
+    case "Twitter":
+      return `https://x.com/search?q=${keywords}&f=live`;
+    case "Reddit": {
+      const sub = (channel || "").match(/r\/(\w+)/)?.[1] || "Teachers";
+      return `https://www.reddit.com/r/${sub}/search/?q=${encodeURIComponent(painPoint)}&restrict_sr=1&sort=new`;
+    }
+    case "TpT":
+      return `https://www.teacherspayteachers.com/Browse/Search:${encodeURIComponent(painPoint)}`;
+    case "LinkedIn":
+      return `https://www.linkedin.com/search/results/content/?keywords=${keywords}`;
+    case "Google Trends":
+      return `https://trends.google.com/trends/explore?q=${encodeURIComponent(painPoint)}&geo=US`;
+    default:
+      return `https://www.google.com/search?q=${keywords}+site:${(platform || "").toLowerCase().replace(/\s/g, "")}`;
+  }
+}
+
 function SignalCard({ signal, onDraft, isNew }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -195,17 +218,35 @@ function SignalCard({ signal, onDraft, isNew }) {
                   <Badge key={t} label={t} color={COLORS.textMuted} small />
                 ))}
               </div>
-              <button onClick={e => { e.stopPropagation(); onDraft(signal); }} style={{
-                background: COLORS.orange,
-                color: "#fff",
-                border: "none",
-                borderRadius: 6,
-                padding: "7px 14px",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-                letterSpacing: "0.03em",
-              }}>Draft Response as Kim</button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <a href={buildSearchUrl(signal.platform, signal.channel, signal.painPoint, signal.tags)}
+                  target="_blank" rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    background: COLORS.purple,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 6,
+                    padding: "7px 14px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    letterSpacing: "0.03em",
+                    textDecoration: "none",
+                    display: "inline-block",
+                  }}>Find Conversation</a>
+                <button onClick={e => { e.stopPropagation(); onDraft(signal); }} style={{
+                  background: COLORS.orange,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "7px 14px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  letterSpacing: "0.03em",
+                }}>Draft Response as Kim</button>
+              </div>
             </div>
           )}
         </div>
