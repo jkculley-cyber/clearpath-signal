@@ -84,9 +84,69 @@ async function searchReddit(sub, query, sort, limit = 5) {
   }));
 }
 
+const TWITTER_SEARCHES = [
+  "#txeducator discipline DAEP frustrated",
+  "#schoolcounselor caseload overwhelmed help",
+  "#ttess observation walkthrough principal time",
+  "teacher \"student engagement\" struggling activities",
+  "#IBcoordinator evaluation self-study preparation",
+  "school counselor \"end of year\" students transition",
+  "campus admin discipline documentation tracking",
+  "teacher \"group activities\" participation ideas",
+];
+
+async function searchTwitterViaClaude(batchNum) {
+  const queries = [
+    TWITTER_SEARCHES[(batchNum * 2 - 2) % TWITTER_SEARCHES.length],
+    TWITTER_SEARCHES[(batchNum * 2 - 1) % TWITTER_SEARCHES.length],
+  ];
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2048,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+      messages: [{
+        role: "user",
+        content: `Search Twitter/X for real tweets from real educators about these topics:\n1. ${queries[0]}\n2. ${queries[1]}\n\nFind actual tweets from individual educators (not organizations or companies). I need the tweet URL (x.com/username/status/...), the username, and what they said.\n\nReturn JSON ONLY:\n{"tweets": [{"url": "https://x.com/...", "username": "@handle", "text": "what they said", "platform": "Twitter/X"}]}\n\nIf you cannot find real tweets with real URLs, return {"tweets": []}. Do NOT fabricate tweets or URLs.`
+      }],
+    }),
+  });
+
+  const data = await res.json();
+  if (data.error) return [];
+  const textBlocks = (data.content || []).filter(b => b.type === "text");
+  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
+  try {
+    const clean = lastText.replace(/```json|```/g, "").trim();
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return [];
+    const result = JSON.parse(jsonMatch[0]);
+    return (result.tweets || []).map(t => ({
+      title: t.text?.slice(0, 100) || "",
+      author: t.username || "unknown",
+      url: t.url || "",
+      subreddit: "Twitter/X",
+      score: 0,
+      comments: 0,
+      text: t.text || "",
+      created: "recent",
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function analyzeWithClaude(posts) {
   const postSummaries = posts.map((p, i) =>
-    `POST ${i + 1}:\nTitle: ${p.title}\nAuthor: u/${p.author}\nSubreddit: ${p.subreddit}\nScore: ${p.score} | ${p.comments} comments\nDate: ${p.created}\nURL: ${p.url}\nText: ${p.text}\n`
+    `POST ${i + 1}:\nTitle: ${p.title}\nAuthor: ${p.subreddit === "Twitter/X" ? "" : "u/"}${p.author}\nPlatform: ${p.subreddit}\nScore: ${p.score} | ${p.comments} comments\nDate: ${p.created}\nURL: ${p.url}\nText: ${p.text}\n`
   ).join("\n---\n");
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -113,10 +173,10 @@ Products:
 - INVESTIGATOR TOOLKIT: Campus investigation workflow $5/mo
 - ENGAGEMENT BUNDLES by Melissa ($7-12.50): Partner Activities, Small Group, Whole Class, CFU bundles for grades 4-12
 
-You are analyzing REAL Reddit posts from real educators. Your job:
+You are analyzing REAL posts from Reddit and Twitter/X from real educators. Your job:
 1. Identify which posts represent someone who has a problem Clear Path can solve
 2. Score urgency — can Kim/Melissa respond directly to this person right now?
-3. Write a ready-to-paste Reddit comment in Kim's or Melissa's authentic educator voice
+3. Write a ready-to-paste reply (Reddit comment or Twitter reply) in Kim's or Melissa's authentic educator voice
 4. Be ruthlessly honest — if a post is not relevant, skip it. Quality over quantity.
 
 Return JSON ONLY:
@@ -194,7 +254,7 @@ function SignalCard({ signal }) {
           background: urg.bg, color: urg.color,
         }}>{signal.urgency}</span>
         <span style={{ fontSize: 10, color: COLORS.textMuted }}>
-          {signal.score} pts | {signal.comments} comments | {signal.date}
+          {signal.score > 0 ? `${signal.score} pts | ` : ""}{signal.comments > 0 ? `${signal.comments} comments | ` : ""}{signal.date}
         </span>
       </div>
 
@@ -265,16 +325,16 @@ export default function SignalDashboard() {
     batchCount.current += 1;
     const searches = SEARCH_SETS[(batchCount.current - 1) % SEARCH_SETS.length];
 
-    // Step 1: Search Reddit directly
-    setStatus("Searching Reddit...");
-    const allPosts = [];
-    for (const s of searches) {
-      const results = await searchReddit(s.sub, s.q, s.sort, 5);
-      allPosts.push(...results);
-    }
+    // Step 1: Search Reddit + Twitter in parallel
+    setStatus("Searching Reddit + Twitter...");
+    const [redditResults, twitterResults] = await Promise.all([
+      Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))),
+      searchTwitterViaClaude(batchCount.current),
+    ]);
+    const allPosts = [...redditResults.flat(), ...twitterResults];
 
     if (allPosts.length === 0) {
-      setError("No Reddit posts found. Try again.");
+      setError("No posts found. Try again.");
       setLoading(false);
       setStatus("");
       return;
@@ -420,8 +480,8 @@ export default function SignalDashboard() {
               Ready to scan
             </div>
             <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 20, lineHeight: 1.6 }}>
-              SIGNAL searches Reddit in real-time — r/Teachers, r/SchoolCounseling,<br />
-              r/IBO, r/K12sysadmin — and finds real people with real problems.<br />
+              SIGNAL searches Reddit + Twitter/X in real-time — 7 subreddits<br />
+              and educator hashtags — finds real people with real problems.<br />
               Every result is a clickable thread. Every response is ready to paste.
             </div>
             <button onClick={runScan} style={{
