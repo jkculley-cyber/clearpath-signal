@@ -24,6 +24,10 @@ CRITICAL RULES:
 3. DO NOT make up quotes, people, or posts. Only report what you actually find via search.
 4. If a search returns nothing useful, say so — do not fabricate results.
 5. For each real finding, write a specific talking point Kim or Melissa can use to respond.
+6. ONLY return results from discussion threads, forum posts, social media posts, and Q&A threads where REAL PEOPLE are asking questions or expressing frustration.
+7. SKIP any result that is a product listing, store page, blog post selling something, or company marketing page. We want PEOPLE WITH PROBLEMS, not sellers with solutions.
+8. Prioritize: Reddit threads, Facebook Group posts, Twitter/X posts, LinkedIn personal posts, Quora questions, forum discussions.
+9. The best signals are posts where someone says "I need help with...", "does anyone have...", "I'm struggling with...", "looking for recommendations..."
 
 When you find real conversations, return JSON ONLY (no markdown):
 {
@@ -66,28 +70,28 @@ const URGENCY_STYLE = {
 
 const SCAN_QUERIES = [
   [
-    "Texas DAEP discipline compliance administrator help",
-    "Reddit teachers ISS OSS discipline tracking spreadsheet",
-    "school counselor caseload tracking overwhelmed end of year",
-    "T-TESS observation walkthrough documentation principal",
+    "reddit.com r/Teachers DAEP ISS discipline tracking frustrated",
+    "reddit.com r/SchoolCounseling caseload overwhelmed tracking groups",
+    "facebook.com groups Texas school administrators discipline help",
+    "twitter.com #txeducator DAEP OR discipline OR compliance",
   ],
   [
-    "student engagement activities teachers struggling participation",
-    "IB coordinator self study evaluation preparation",
-    "school counselor SB 179 80/20 compliance Texas",
-    "campus administrator discipline referral tracking system",
+    "reddit.com r/Teachers student engagement boring lessons ideas help",
+    "reddit.com r/IBO coordinator self study evaluation overwhelmed",
+    "facebook.com groups school counselors SB 179 OR 80/20 OR caseload",
+    "twitter.com #ttess observation walkthrough frustrating OR overwhelming",
   ],
   [
-    "DAEP placement SPED manifestation determination Texas HB 6",
-    "teachers formative assessment exit tickets activities",
-    "school counselor group counseling tracking data",
-    "principal instructional coaching walkthrough feedback tool",
+    "reddit.com r/Teachers ISS OSS referral tracking need help spreadsheet",
+    "reddit.com r/SchoolCounseling end of year transition handoff students",
+    "facebook.com groups elementary counselors group tracking activities",
+    "linkedin.com school principal discipline documentation compliance",
   ],
   [
-    "Texas school discipline law 2025 2026 administrator",
-    "Reddit teaching student engagement boring lessons help",
-    "IB programme evaluation visit coordinator preparation",
-    "elementary counselor caseload management tool tracker",
+    "reddit.com r/Teachers group activities participation struggling advice",
+    "reddit.com r/K12sysadmin discipline management software district",
+    "facebook.com groups IB coordinators evaluation visit preparation",
+    "twitter.com school counselor overwhelmed end of year caseload",
   ],
 ];
 
@@ -110,7 +114,7 @@ async function runScanWithSearch(batchNum) {
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
       messages: [{
         role: "user",
-        content: `Run these searches and find REAL posts, threads, and conversations from real educators. Return only what you actually find with real URLs.\n\n${searchPrompt}\n\nFor each real result you find, match it to a Clear Path product and write a talking point for Kim or Melissa. Return 6-10 real signals with real URLs. If you can't find something real for a search, skip it — do NOT fabricate.`
+        content: `Run these searches and find REAL discussion threads, forum posts, and social media posts from REAL educators asking for help, venting frustrations, or seeking recommendations.\n\n${searchPrompt}\n\nIMPORTANT: SKIP all product pages, store listings, blog posts selling things, and company marketing. I ONLY want posts from real people in discussion threads — Reddit, Facebook Groups, Twitter, LinkedIn personal posts, Quora, teacher forums.\n\nThe best results are people saying "I need...", "does anyone know...", "I'm struggling with...", "any recommendations for..."\n\nFor each real result, match it to a Clear Path product and write a talking point. Return 6-10 real signals with real URLs. If you can't find discussion posts for a search, skip it — do NOT fabricate or substitute a product page.`
       }],
     }),
   });
