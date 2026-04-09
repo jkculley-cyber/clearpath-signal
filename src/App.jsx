@@ -1,6 +1,11 @@
 import { useState, useRef } from "react";
 
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+// FREE PIPELINE — no API keys.
+// Worker proxies source fetches; Ollama on SP4 (via Cloudflare Tunnel) does analysis.
+// After deploying clearpath-signal-worker, paste the live URL here:
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || "https://clearpath-signal-worker.jkculley.workers.dev";
+const OLLAMA_URL = "https://scout.clearpathedgroup.com";
+const OLLAMA_MODEL = "gemma3:1b";
 
 const COLORS = {
   purple: "#4B2D7F", purpleMid: "#6B4BA1", purpleLight: "#EDE7F6",
@@ -67,21 +72,47 @@ const SEARCH_SETS = [
   ],
 ];
 
-async function searchReddit(sub, query, sort, limit = 5) {
-  const url = `/api/reddit?sub=${encodeURIComponent(sub)}&q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.data?.children || []).map(p => ({
-    title: p.data.title,
-    author: p.data.author,
-    url: "https://reddit.com" + p.data.permalink,
-    subreddit: p.data.subreddit_name_prefixed,
-    score: p.data.score,
-    comments: p.data.num_comments,
-    text: (p.data.selftext || "").slice(0, 300),
-    created: new Date(p.data.created_utc * 1000).toLocaleDateString(),
-  }));
+async function searchReddit(sub, query, _sort, limit = 5) {
+  // Worker /reddit hits reddit.com search.json directly. Combine subreddit into the query.
+  const q = `subreddit:${sub} ${query}`;
+  const url = `${WORKER_URL}/reddit?q=${encodeURIComponent(q)}&limit=${limit}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map(p => ({
+      title: p.title,
+      author: p.author,
+      url: p.url,
+      subreddit: `r/${p.subreddit}`,
+      score: p.score,
+      comments: p.comments,
+      text: (p.text || "").slice(0, 300),
+      created: p.created ? new Date(p.created).toLocaleDateString() : "recent",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function searchHN(query) {
+  try {
+    const res = await fetch(`${WORKER_URL}/hn?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map(h => ({
+      title: h.title || "(no title)",
+      author: h.author || "unknown",
+      url: h.url,
+      subreddit: "Hacker News",
+      score: h.points || 0,
+      comments: h.comments || 0,
+      text: "",
+      created: h.created ? new Date(h.created).toLocaleDateString() : "recent",
+    }));
+  } catch {
+    return [];
+  }
 }
 
 const TWITTER_SEARCHES = [
@@ -95,53 +126,32 @@ const TWITTER_SEARCHES = [
   "teacher \"group activities\" participation ideas",
 ];
 
-async function searchTwitterViaClaude(batchNum) {
+async function searchTwitterViaWorker(batchNum) {
   const queries = [
     TWITTER_SEARCHES[(batchNum * 2 - 2) % TWITTER_SEARCHES.length],
     TWITTER_SEARCHES[(batchNum * 2 - 1) % TWITTER_SEARCHES.length],
   ];
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
-      messages: [{
-        role: "user",
-        content: `Search Twitter/X for real tweets from real educators about these topics:\n1. ${queries[0]}\n2. ${queries[1]}\n\nFind actual tweets from individual educators (not organizations or companies). I need the tweet URL (x.com/username/status/...), the username, and what they said.\n\nReturn JSON ONLY:\n{"tweets": [{"url": "https://x.com/...", "username": "@handle", "text": "what they said", "platform": "Twitter/X"}]}\n\nIf you cannot find real tweets with real URLs, return {"tweets": []}. Do NOT fabricate tweets or URLs.`
-      }],
-    }),
-  });
-
-  const data = await res.json();
-  if (data.error) return [];
-  const textBlocks = (data.content || []).filter(b => b.type === "text");
-  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
-  try {
-    const clean = lastText.replace(/```json|```/g, "").trim();
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return [];
-    const result = JSON.parse(jsonMatch[0]);
-    return (result.tweets || []).map(t => ({
-      title: t.text?.slice(0, 100) || "",
-      author: t.username || "unknown",
-      url: t.url || "",
-      subreddit: "Twitter/X",
-      score: 0,
-      comments: 0,
-      text: t.text || "",
-      created: "recent",
-    }));
-  } catch {
-    return [];
+  const all = [];
+  for (const q of queries) {
+    try {
+      const res = await fetch(`${WORKER_URL}/twitter?q=${encodeURIComponent(q)}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const t of data.results || []) {
+        all.push({
+          title: (t.text || "").slice(0, 100),
+          author: t.author || "unknown",
+          url: t.url || "",
+          subreddit: "Twitter/X",
+          score: t.likes || 0,
+          comments: t.retweets || 0,
+          text: t.text || "",
+          created: t.created || "recent",
+        });
+      }
+    } catch { /* honest skip */ }
   }
+  return all;
 }
 
 const QUORA_TPT_SEARCHES = [
@@ -158,50 +168,43 @@ const QUORA_TPT_SEARCHES = [
 ];
 
 async function searchQuoraAndTpT(batchNum) {
+  const all = [];
   const q1 = QUORA_TPT_SEARCHES[(batchNum * 2 - 2) % QUORA_TPT_SEARCHES.length];
   const q2 = QUORA_TPT_SEARCHES[(batchNum * 2 - 1) % QUORA_TPT_SEARCHES.length];
+  // Strip site: prefix — Worker routes it to the right backend.
+  const cleanQ = (q) => q.replace(/site:[^\s]+\s*/g, "").trim();
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
-      messages: [{
-        role: "user",
-        content: `Search for real questions and discussions from educators on Quora and TpT forums:\n1. ${q1}\n2. ${q2}\n\nFind posts where REAL PEOPLE are asking questions, seeking recommendations, or expressing frustration. I need the actual URL, the person's name or username, and what they asked.\n\nSKIP any result that is a product listing, blog post, or company page. I ONLY want questions and discussion threads from individuals.\n\nReturn JSON ONLY:\n{"posts": [{"url": "https://...", "author": "name or username", "title": "the question or topic", "text": "what they said (first 200 chars)", "platform": "Quora" or "TpT Forum"}]}\n\nIf you cannot find real questions with real URLs, return {"posts": []}. Do NOT fabricate.`
-      }],
-    }),
-  });
-
-  const data = await res.json();
-  if (data.error) return [];
-  const textBlocks = (data.content || []).filter(b => b.type === "text");
-  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
-  try {
-    const clean = lastText.replace(/```json|```/g, "").trim();
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return [];
-    const result = JSON.parse(jsonMatch[0]);
-    return (result.posts || []).map(p => ({
-      title: p.title || p.text?.slice(0, 100) || "",
-      author: p.author || "unknown",
-      url: p.url || "",
-      subreddit: p.platform || "Quora",
-      score: 0,
-      comments: 0,
-      text: p.text || "",
-      created: "recent",
-    }));
-  } catch {
-    return [];
-  }
+  await Promise.allSettled([
+    fetch(`${WORKER_URL}/quora?q=${encodeURIComponent(cleanQ(q1))}`).then(r => r.json()).then(d => {
+      for (const p of d.results || []) {
+        all.push({
+          title: p.title || "",
+          author: "Quora user",
+          url: p.url || "",
+          subreddit: "Quora",
+          score: 0,
+          comments: 0,
+          text: p.snippet || "",
+          created: "recent",
+        });
+      }
+    }).catch(() => {}),
+    fetch(`${WORKER_URL}/tpt?q=${encodeURIComponent(cleanQ(q2))}`).then(r => r.json()).then(d => {
+      for (const p of d.results || []) {
+        all.push({
+          title: p.title || "",
+          author: p.author || "TpT seller",
+          url: p.url || "",
+          subreddit: "TpT",
+          score: p.num_ratings || 0,
+          comments: 0,
+          text: `${p.price || ""} ${p.rating ? `★${p.rating}` : ""}`.trim(),
+          created: "recent",
+        });
+      }
+    }).catch(() => {}),
+  ]);
+  return all;
 }
 
 const TRENDS_QUERIES = [
@@ -215,113 +218,73 @@ const TRENDS_QUERIES = [
 
 async function searchGoogleTrends(batchNum) {
   const query = TRENDS_QUERIES[(batchNum - 1) % TRENDS_QUERIES.length];
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
-      messages: [{
-        role: "user",
-        content: `Search Google Trends and Google search suggestions for these educator search terms: ${query}\n\nI need to know:\n1. Which of these terms are people actually searching for (search volume/interest)\n2. Related searches educators are making (Google's "People also ask" and "Related searches")\n3. Any rising or breakout search terms in education/school administration\n\nAlso search for these terms on Google and tell me what currently ranks #1-3 for each — I need to know who I'm competing against.\n\nReturn JSON ONLY:\n{"trends": [{"term": "search term", "interest": "high/medium/low", "trend": "rising/stable/declining", "topCompetitors": ["site1.com", "site2.com"], "relatedSearches": ["related term 1", "related term 2"], "seoOpportunity": "1 sentence — what page should clearpathedgroup.com build to rank for this"}]}\n\nBe specific about competitors. If TpT, Bright Futures, DMAC, or specific sites rank, name them.`
-      }],
-    }),
-  });
-
-  const data = await res.json();
-  if (data.error) return null;
-  const textBlocks = (data.content || []).filter(b => b.type === "text");
-  const lastText = textBlocks[textBlocks.length - 1]?.text || "";
-  try {
-    const clean = lastText.replace(/```json|```/g, "").trim();
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
-  } catch {
-    return null;
+  // Worker takes a single keyword. Split the comma-list and query each.
+  const terms = query.split(",").map(t => t.trim()).filter(Boolean).slice(0, 3);
+  const trends = [];
+  for (const term of terms) {
+    try {
+      const res = await fetch(`${WORKER_URL}/trends?q=${encodeURIComponent(term)}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.error || !(data.results || []).length) continue;
+      const interest = (data.results || []).filter(r => r.type === "interest").map(r => r.value).filter(v => v != null);
+      const avg = interest.length ? Math.round(interest.reduce((a,b) => a+b, 0) / interest.length) : 0;
+      const last = interest.slice(-3).reduce((a,b) => a+b, 0) / Math.max(1, Math.min(3, interest.length));
+      const first = interest.slice(0, 3).reduce((a,b) => a+b, 0) / Math.max(1, Math.min(3, interest.length));
+      const related = (data.results || []).filter(r => r.type === "related_query").map(r => r.query);
+      trends.push({
+        term,
+        interest: avg > 50 ? "high" : avg > 20 ? "medium" : "low",
+        trend: last > first * 1.2 ? "rising" : last < first * 0.8 ? "declining" : "stable",
+        topCompetitors: [],
+        relatedSearches: related.slice(0, 5),
+        seoOpportunity: related.length ? `Build a page targeting "${related[0]}"` : "",
+      });
+    } catch { /* skip */ }
   }
+  return { trends };
 }
 
-async function analyzeWithClaude(posts) {
+async function analyzeWithOllama(posts) {
   const postSummaries = posts.map((p, i) =>
-    `POST ${i + 1}:\nTitle: ${p.title}\nAuthor: ${p.subreddit === "Twitter/X" ? "" : "u/"}${p.author}\nPlatform: ${p.subreddit}\nScore: ${p.score} | ${p.comments} comments\nDate: ${p.created}\nURL: ${p.url}\nText: ${p.text}\n`
+    `POST ${i + 1} | ${p.subreddit} | ${p.author} | score:${p.score} comments:${p.comments}\nTitle: ${p.title}\nURL: ${p.url}\nText: ${(p.text || "").slice(0, 300)}\n`
   ).join("\n---\n");
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const system = `You are SIGNAL, market intel analyst for Clear Path Education Group. Products: WAYPOINT (DAEP/discipline SaaS), APEX TEXAS (T-TESS coaching), APEX IB (IB coordinator), BEACON (counselor), INVESTIGATOR (investigations), ENGAGEMENT (Melissa's classroom bundles).
+
+Analyze real posts from educators. For each relevant post output one signal. Skip irrelevant posts. NEVER invent posts, authors, or URLs — use ONLY what is provided.
+
+Return JSON ONLY (no prose, no markdown fences):
+{"signals":[{"id":"1","title":"...","author":"...","subreddit":"...","url":"...","score":0,"comments":0,"date":"recent","painPoint":"1 sentence","product":"WAYPOINT|APEX TEXAS|APEX IB|BEACON|INVESTIGATOR|ENGAGEMENT|BRAND","urgency":"respond now|this week|content idea","readyToPost":"3-5 sentence reply in Kim's authentic educator voice","whyThisMatters":"1 sentence"}],"summary":"2 sentences","topAction":"the #1 thing to do"}`;
+
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: `You are SIGNAL, a market intelligence analyst for Clear Path Education Group.
-
-Kim Culley: sitting DAEP Principal, former Head of School, IB Programme Coordinator.
-Melissa: IB Programme Coordinator, creates classroom engagement resources.
-
-Products:
-- WAYPOINT: DAEP + discipline management SaaS for Texas districts
-- APEX TEXAS: AI instructional leadership (T-TESS, voice coaching) $10/mo
-- APEX IB: IB coordinator platform (self-study, observation, Learner Profile)
-- BEACON: Counselor command center $8/mo (SB 179 80/20, groups, referrals)
-- INVESTIGATOR TOOLKIT: Campus investigation workflow $5/mo
-- ENGAGEMENT BUNDLES by Melissa ($7-12.50): Partner Activities, Small Group, Whole Class, CFU bundles for grades 4-12
-
-You are analyzing REAL posts from Reddit, Twitter/X, Quora, and TpT Forums from real educators. Your job:
-1. Identify which posts represent someone who has a problem Clear Path can solve
-2. Score urgency — can Kim/Melissa respond directly to this person right now?
-3. Write a ready-to-paste reply (Reddit comment, Twitter reply, Quora answer, or TpT forum response) in Kim's or Melissa's authentic educator voice
-4. Be ruthlessly honest — if a post is not relevant, skip it. Quality over quantity.
-
-Return JSON ONLY:
-{
-  "signals": [
-    {
-      "id": "post-number",
-      "title": "exact post title",
-      "author": "u/username",
-      "subreddit": "r/subreddit",
-      "url": "exact reddit URL",
-      "score": number,
-      "comments": number,
-      "date": "date string",
-      "painPoint": "1 sentence — what problem does this person have",
-      "product": "WAYPOINT / APEX TEXAS / APEX IB / BEACON / INVESTIGATOR / ENGAGEMENT / BRAND",
-      "urgency": "respond now / this week / content idea",
-      "readyToPost": "Full Reddit comment Kim or Melissa can paste as a reply. Authentic educator voice. Lead with empathy and experience. Mention Clear Path ONLY if it genuinely fits — many responses should be pure value with no pitch. 3-5 sentences max.",
-      "whyThisMatters": "1 sentence on why this is worth responding to"
-    }
-  ],
-  "summary": "2 sentence overview",
-  "topAction": "the #1 thing to do right now"
-}
-
-Skip posts that are not relevant. Only return posts where a real person has a real problem. Prefer posts with high engagement (upvotes + comments) — those have more eyeballs.`,
-      messages: [{
-        role: "user",
-        content: `Analyze these real Reddit posts and identify which ones are opportunities for Clear Path Education Group. Only include posts where someone has a genuine pain point we can address.\n\n${postSummaries}`
-      }],
+      model: OLLAMA_MODEL,
+      stream: false,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: `Analyze these real posts:\n\n${postSummaries}` },
+      ],
+      options: { temperature: 0.3, num_predict: 2048 },
     }),
   });
 
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  const text = data.message?.content || "";
   const clean = text.replace(/```json|```/g, "").trim();
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No analysis returned");
-  return JSON.parse(jsonMatch[0]);
+  if (!jsonMatch) {
+    // Honest fallback — show raw analysis without fabricated signals
+    return { signals: [], summary: text.slice(0, 400) || "(no analysis)", topAction: "" };
+  }
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return { signals: [], summary: text.slice(0, 400), topAction: "" };
+  }
 }
 
 function SignalCard({ signal }) {
@@ -438,15 +401,21 @@ export default function SignalDashboard() {
 
     try {
       // Step 1: Search all platforms in parallel with timeouts
-      setStatus("Searching Reddit + Twitter + Quora + TpT + Google Trends...");
-      const [redditResults, twitterResults, quoraResults, trendsData] = await Promise.all([
-        withTimeout(Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))), 15000, []),
-        withTimeout(searchTwitterViaClaude(batchCount.current), 30000, []),
-        withTimeout(searchQuoraAndTpT(batchCount.current), 30000, []),
-        withTimeout(searchGoogleTrends(batchCount.current), 30000, null),
+      setStatus("Searching Reddit + HN + Twitter + Quora + TpT + Trends (free pipeline)...");
+      const [redditResults, hnResults, twitterResults, quoraResults, trendsData] = await Promise.all([
+        withTimeout(Promise.all(searches.map(s => searchReddit(s.sub, s.q, s.sort, 5))), 20000, []),
+        withTimeout(Promise.all(searches.slice(0, 2).map(s => searchHN(s.q))), 15000, []),
+        withTimeout(searchTwitterViaWorker(batchCount.current), 25000, []),
+        withTimeout(searchQuoraAndTpT(batchCount.current), 25000, []),
+        withTimeout(searchGoogleTrends(batchCount.current), 25000, null),
       ]);
       if (trendsData) setTrends(trendsData.trends || []);
-      const allPosts = [...(redditResults || []).flat(), ...(twitterResults || []), ...(quoraResults || [])];
+      const allPosts = [
+        ...(redditResults || []).flat(),
+        ...(hnResults || []).flat(),
+        ...(twitterResults || []),
+        ...(quoraResults || []),
+      ];
 
       if (allPosts.length === 0) {
         setError("No posts found. Try again.");
@@ -463,9 +432,9 @@ export default function SignalDashboard() {
         return true;
       });
 
-      // Step 2: Send to Claude for analysis
-      setStatus(`Found ${unique.length} posts. Analyzing with Claude...`);
-      const result = await withTimeout(analyzeWithClaude(unique), 45000, { signals: [], summary: "Analysis timed out. Reddit posts were found — try again.", topAction: "" });
+      // Step 2: Send to Ollama (SP4 via tunnel) for analysis
+      setStatus(`Found ${unique.length} posts. Analyzing with Ollama (Gemma 3 1B)...`);
+      const result = await withTimeout(analyzeWithOllama(unique), 90000, { signals: [], summary: "Ollama analysis timed out — posts were found, tunnel may be slow.", topAction: "" });
       const incoming = result.signals || [];
       setSignals(prev => [...incoming, ...prev].slice(0, 50));
       setSummary(result.summary || "");
