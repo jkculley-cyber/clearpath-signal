@@ -12,6 +12,10 @@ const WORKER_URL = process.env.WORKER_URL || "https://clearpath-signal-worker.jk
 const OLLAMA_URL = process.env.OLLAMA_URL || "https://scout.clearpathedgroup.com";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:1b";
 
+// Ops Command Center — write scan results so they show up in clearpath-ops.pages.dev
+const OPS_URL = "https://xbpuqaqpcbixxodblaes.supabase.co";
+const OPS_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhicHVxYXFwY2JpeHhvZGJsYWVzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjk4MDQsImV4cCI6MjA4Nzk0NTgwNH0.9Rhmz-FLUXnEQXpRCkg3G2ppzPxs2DinaYDmdD_wvPA";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const RUNS_DIR = join(REPO_ROOT, "signal-runs");
@@ -136,6 +140,28 @@ async function main() {
   const fname = `scan-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 16)}.md`;
   const fpath = join(RUNS_DIR, fname);
   await writeFile(fpath, report, "utf8");
+
+  // Push to ops command center
+  try {
+    const sourceCounts = {};
+    const allItems = [];
+    for (const r of results) {
+      const src = r.label.split(":")[0].trim();
+      sourceCounts[src] = (sourceCounts[src] || 0) + r.results.length;
+      for (const item of r.results) {
+        allItems.push({ source: src, title: item.title || item.text?.slice(0, 120), url: item.url, author: item.author });
+      }
+    }
+    const opsRes = await fetch(`${OPS_URL}/rest/v1/signal_scans`, {
+      method: "POST",
+      headers: { apikey: OPS_KEY, Authorization: `Bearer ${OPS_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ source_counts: sourceCounts, total_items: total, analysis, report, items: allItems }),
+    });
+    if (opsRes.ok) console.log("Pushed to ops command center.");
+    else console.log(`Ops push failed: HTTP ${opsRes.status}`);
+  } catch (e) {
+    console.log(`Ops push skipped: ${e?.message || e}`);
+  }
 
   // Print to terminal
   console.log(report);
